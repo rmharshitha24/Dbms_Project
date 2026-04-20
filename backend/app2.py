@@ -7,9 +7,43 @@ from datetime import datetime
 app = Flask(__name__)
 CORS(app)
 
+# ---------------- MATCHING HELPERS ----------------
+
+def is_blood_compatible(donor_bg, recipient_bg):
+    compatibility = {
+        "O+": ["O+"],
+        "A+": ["A+", "O+"],
+        "B+": ["B+", "O+"],
+        "AB+": ["A+", "B+", "AB+", "O+"]
+    }
+    return recipient_bg in compatibility.get(donor_bg, [])  # FIXED
+
+
+def calculate_score(organ, request):
+    score = 0
+
+    if organ['blood_group'] == request['blood_group']:
+        score += 50
+    elif is_blood_compatible(organ['blood_group'], request['blood_group']):
+        score += 30
+    else:
+        return 0
+
+    urgency_map = {"High": 30, "Medium": 20, "Low": 10}
+    score += urgency_map.get(request['urgency_level'], 0)
+
+    if organ['hospital_id'] == request.get('hospital_id'):
+        score += 10
+
+    if organ['status'] == "Available":
+        score += 10
+
+    return score
+
+
 def find_best_match(cursor, organ):
     cursor.execute("""
-        SELECT r.*, rec.blood_group
+        SELECT r.*, rec.blood_group, rec.hospital_id
         FROM transplant_request r
         JOIN recipient rec ON r.recipient_id = rec.recipient_id
         WHERE r.organ_needed = %s AND r.status = 'Pending'
@@ -21,19 +55,30 @@ def find_best_match(cursor, organ):
     best_score = -1
 
     for r in requests:
-        if r["blood_group"] != organ["blood_group"]:
+        score = calculate_score(
+            organ,
+            {
+                "blood_group": r["blood_group"],
+                "urgency_level": r["urgency_level"],
+                "hospital_id": r["hospital_id"]
+            }
+        )
+
+        if score == 0:
             continue
 
-        score = 0
+        # SAFE datetime handling
+        days = 0
+        if r.get("requested_on"):
+            try:
+                if isinstance(r["requested_on"], str):
+                    dt = datetime.strptime(r["requested_on"], "%Y-%m-%d %H:%M:%S")
+                else:
+                    dt = r["requested_on"]
+                days = (datetime.now() - dt).days
+            except:
+                days = 0
 
-        if r["urgency_level"] == "High":
-            score += 50
-        elif r["urgency_level"] == "Medium":
-            score += 30
-        else:
-            score += 10
-
-        days = (datetime.now() - r["requested_on"]).days
         score += days * 2
 
         if score > best_score:
@@ -43,71 +88,11 @@ def find_best_match(cursor, organ):
     return best, best_score
 
 
-def is_blood_compatible(donor_bg, recipient_bg):
-    compatibility = {
-        "O+": ["O+"],
-        "A+": ["A+", "O+"],
-        "B+": ["B+", "O+"],
-        "AB+": ["A+", "B+", "AB+", "O+"]
-    }
-    return donor_bg in compatibility.get(recipient_bg, [])
-
-
-def calculate_score(organ, request):
-    score = 0
-
-    if organ['blood_group'] == request['blood_group']:
-        score += 50
-    elif is_blood_compatible(organ['blood_group'], request['blood_group']):
-        score += 30
-    else:
-        return 0
-
-    urgency_map = {"High": 30, "Medium": 20, "Low": 10}
-    score += urgency_map.get(request['urgency_level'], 0)
-
-    if organ['hospital_id'] == request['hospital_id']:
-        score += 10
-
-    if organ['status'] == "Available":
-        score += 10
-
-    return score
-
-def is_blood_compatible(donor_bg, recipient_bg):
-    compatibility = {
-        "O+": ["O+"],
-        "A+": ["A+", "O+"],
-        "B+": ["B+", "O+"],
-        "AB+": ["A+", "B+", "AB+", "O+"]
-    }
-    return donor_bg in compatibility.get(recipient_bg, [])
-
-
-def calculate_score(organ, request):
-    score = 0
-
-    if organ['blood_group'] == request['blood_group']:
-        score += 50
-    elif is_blood_compatible(organ['blood_group'], request['blood_group']):
-        score += 30
-    else:
-        return 0
-
-    urgency_map = {"High": 30, "Medium": 20, "Low": 10}
-    score += urgency_map.get(request['urgency_level'], 0)
-
-    if organ['hospital_id'] == request['hospital_id']:
-        score += 10
-
-    if organ['status'] == "Available":
-        score += 10
-
-    return score
 # ---------------- BASIC ----------------
 @app.route('/')
 def home():
     return jsonify({"message": "API is running"}), 200
+# ---------------- BASIC ----------------
 
 
 @app.route('/db-test', methods=['GET'])
@@ -368,75 +353,6 @@ def add_recipient():
             cursor.close()
         if conn and conn.is_connected():
             conn.close()
-
-@app.route("/match/<int:organ_id>", methods=["POST"])
-def match_organ(organ_id):
-    conn = get_db_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    # get organ
-    cursor.execute("SELECT * FROM organ WHERE organ_id = %s AND status = 'Available'", (organ_id,))
-    organ = cursor.fetchone()
-
-    if not organ:
-        return jsonify({"error": "Organ not available"}), 400
-
-    best, score = find_best_match(cursor, organ)
-
-    if not best:
-        return jsonify({"error": "No match found"}), 404
-
-    # insert matching
-    cursor.execute("""
-        INSERT INTO matching_record
-        (compatibility_score, status, matched_at, request_id, organ_id)
-        VALUES (%s, 'Matched', NOW(), %s, %s)
-    """, (score, best["request_id"], organ_id))
-
-    matching_id = cursor.lastrowid
-
-    # update statuses
-    cursor.execute("UPDATE transplant_request SET status = 'Matched' WHERE request_id = %s", (best["request_id"],))
-    cursor.execute("UPDATE organ SET status = 'Reserved' WHERE organ_id = %s", (organ_id,))
-
-    conn.commit()
-
-    return jsonify({
-        "matching_id": matching_id,
-        "recipient_id": best["recipient_id"],
-        "score": score
-    })
-
-@app.route("/transplant", methods=["POST"])
-def create_transplant():
-    data = request.get_json()
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO transplant
-        (surgery_date, outcome, notes, matching_id, surgeon_id, hospital_id)
-        VALUES (%s, %s, %s, %s, %s, %s)
-    """, (
-        data["surgery_date"],
-        data["outcome"],
-        data.get("notes"),
-        data["matching_id"],
-        data["surgeon_id"],
-        data["hospital_id"]
-    ))
-
-    cursor.execute("""
-        UPDATE organ o
-        JOIN matching_record m ON o.organ_id = m.organ_id
-        SET o.status = 'Used'
-        WHERE m.matching_id = %s
-    """, (data["matching_id"],))
-
-    conn.commit()
-
-    return jsonify({"message": "Transplant completed"})
 
 
 @app.route('/recipients', methods=['GET'])
@@ -981,6 +897,20 @@ def add_organ():
         if conn and conn.is_connected():
             conn.close()
 
+@app.route("/organs", methods=["GET"])
+def get_organs():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("SELECT * FROM organ")
+
+    organs = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return jsonify(organs)
+
 
 # ---------------- MATCHING ----------------
 @app.route('/matches/approve', methods=['POST'])
@@ -1185,7 +1115,7 @@ def create_transplant():
     try:
         data = request.get_json()
 
-        required_fields = ['match_id', 'surgery_date', 'outcome', 'surgeon_id', 'hospital_id']
+        required_fields = ['matching_id', 'surgery_date', 'outcome', 'surgeon_id', 'hospital_id']
         for field in required_fields:
             if not data.get(field):
                 return jsonify({"error": f"Missing field: {field}"}), 400
@@ -1194,12 +1124,12 @@ def create_transplant():
         cursor = conn.cursor()
 
         cursor.execute("""
-            INSERT INTO transplant (surgery_date, outcome, match_id, surgeon_id, hospital_id)
+            INSERT INTO transplant (surgery_date, outcome, matching_id, surgeon_id, hospital_id)
             VALUES (%s, %s, %s, %s, %s)
         """, (
             data['surgery_date'],
             data['outcome'],
-            data['match_id'],
+            data['matching_id'],
             data['surgeon_id'],
             data['hospital_id']
         ))
@@ -1218,6 +1148,47 @@ def create_transplant():
             cursor.close()
         if conn and conn.is_connected():
             conn.close()
+
+# ---------------- MATCH AUTO ----------------
+@app.route("/match/<int:organ_id>", methods=["POST"])
+def auto_match(organ_id):
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+
+        cursor.execute("""
+            SELECT * FROM organ 
+            WHERE organ_id = %s AND status = 'Available'
+        """, (organ_id,))
+        organ = cursor.fetchone()
+
+        if not organ:
+            return jsonify({"error": "Organ not available"}), 400
+
+        best, score = find_best_match(cursor, organ)
+
+        if not best:
+            return jsonify({"error": "No match found"}), 404
+
+        return jsonify({
+            "message": "Match found",
+            "request_id": best["request_id"],
+            "recipient_id": best["recipient_id"],
+            "score": score
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        if cursor:
+            cursor.close()
+        if conn and conn.is_connected():
+            conn.close()
+
+
 # ---------------- RUN ----------------
 if __name__ == '__main__':
     app.run(debug=True)

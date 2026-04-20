@@ -9,6 +9,8 @@ function StaffDashboard() {
   const [hospital, setHospital] = useState(null);
   const [requests, setRequests] = useState([]);
   const [message, setMessage] = useState("");
+  const [organs, setOrgans] = useState([]);
+  
 
   const [hospitalForm, setHospitalForm] = useState({
     name: "",
@@ -35,6 +37,15 @@ function StaffDashboard() {
     surgeon_id: ""
   });
 
+  const loadOrgans = async () => {
+    try {
+      const res = await API.get("/organs");
+      setOrgans(res.data || []);
+    } catch {
+      setOrgans([]);
+    }
+  };
+
   const loadHospital = async () => {
     try {
       const res = await API.get(`/hospital/profile/${user.user_id}`);
@@ -56,6 +67,7 @@ function StaffDashboard() {
   useEffect(() => {
     loadHospital();
     loadRequests();
+    loadOrgans(); // 
   }, []);
 
   const createHospital = async () => {
@@ -130,6 +142,32 @@ function StaffDashboard() {
       });
     } catch (err) {
       setMessage(err?.response?.data?.error || "Failed to record transplant");
+    }
+  };
+
+  const runMatch = async (organId) => {
+    try {
+      const res = await API.post(`/match/${organId}`);
+      const user = JSON.parse(localStorage.getItem("user"));
+
+      approved_by: user.user_id
+  
+      await API.post("/matches/approve", {
+        request_id: res.data.request_id,
+        organ_id: organId,
+        score: res.data.score,        
+        approved_by: 1                
+      });
+  
+      alert("Match found and saved!");
+  
+    } catch (err) {
+      if (err.response && err.response.status === 404) {
+        alert("No match found");
+      } else {
+        console.log(err);
+        alert("Something went wrong");
+      }
     }
   };
 
@@ -327,6 +365,29 @@ function StaffDashboard() {
             <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={addTransplant}>
               Record Surgery
             </button>
+
+            <div style={{ marginTop: 16 }}>
+  <h3>Select Organ to Match</h3>
+
+  {organs.length === 0 ? (
+    <p className="muted-text">No available organs</p>
+  ) : (
+    organs.map((org) => (
+      <div key={org.organ_id} style={{ marginBottom: 8 }}>
+        <span>
+          {org.organ_type} ({org.blood_group})
+        </span>
+
+        <button
+          style={{ marginLeft: 10 }}
+          onClick={() => runMatch(org.organ_id)}
+        >
+          Run Matching
+        </button>
+      </div>
+    ))
+  )}
+</div>
           </div>
 
           {message && <p style={{ marginTop: 14 }} className="success-text">{message}</p>}
