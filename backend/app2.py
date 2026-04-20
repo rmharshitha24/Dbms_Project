@@ -1109,44 +1109,40 @@ def get_request_details():
             conn.close()
 
 @app.route('/transplants', methods=['POST'])
-def create_transplant():
+def add_transplant():
     conn = None
     cursor = None
+
     try:
         data = request.get_json()
-
-        required_fields = ['matching_id', 'surgery_date', 'outcome', 'surgeon_id', 'hospital_id']
-        for field in required_fields:
-            if not data.get(field):
-                return jsonify({"error": f"Missing field: {field}"}), 400
 
         conn = get_db_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
-            INSERT INTO transplant (surgery_date, outcome, matching_id, surgeon_id, hospital_id)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO transplant
+            (surgery_date, outcome, notes, matching_id, surgeon_id, hospital_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
         """, (
-            data['surgery_date'],
-            data['outcome'],
-            data['matching_id'],
-            data['surgeon_id'],
-            data['hospital_id']
+            data.get('surgery_date'),
+            data.get('outcome'),
+            data.get('notes'),
+            data.get('matching_id'),
+            data.get('surgeon_id'),
+            data.get('hospital_id')
         ))
 
         conn.commit()
 
-        return jsonify({
-            "message": "Transplant recorded successfully",
-            "transplant_id": cursor.lastrowid
-        }), 201
+        return jsonify({"message": "Transplant recorded"}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
     finally:
         if cursor:
             cursor.close()
-        if conn and conn.is_connected():
+        if conn:
             conn.close()
 
 # ---------------- MATCH AUTO ----------------

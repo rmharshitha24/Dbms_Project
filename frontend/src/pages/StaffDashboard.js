@@ -134,25 +134,22 @@ function StaffDashboard() {
 
   const addTransplant = async () => {
     try {
-      if (!hospital) {
-        setMessage("Create hospital first");
-        return;
-      }
-
+      const user = JSON.parse(localStorage.getItem("user"));
+  
       const res = await API.post("/transplants", {
-        ...transplantForm,
+        matching_id: transplantForm.matching_id,
+        surgery_date: transplantForm.surgery_date,
+        outcome: transplantForm.outcome,
+        notes: "", 
+        surgeon_id: transplantForm.surgeon_id,
         hospital_id: hospital.hospital_id
       });
-
-      setMessage(res.data.message || "Transplant recorded successfully");
-      setTransplantForm({
-        match_id: "",
-        surgery_date: "",
-        outcome: "",
-        surgeon_id: ""
-      });
+  
+      alert("Transplant recorded!");
+  
     } catch (err) {
-      setMessage(err?.response?.data?.error || "Failed to record transplant");
+      console.log(err);
+      alert(err.response?.data?.error || "Failed to record transplant");
     }
   };
 
@@ -269,70 +266,6 @@ function StaffDashboard() {
 
             <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={addStaff}>
               Add Staff
-            </button>
-          </div>
-
-          <div className="card" style={{ marginTop: 20 }}>
-            <h2 className="page-title">Requests Overview</h2>
-
-            {requests.length === 0 ? (
-              <p className="muted-text">No requests found.</p>
-            ) : (
-              <div className="list-box">
-                {requests.map((req) => (
-                  <div className="request-card" key={req.request_id}>
-                    <div className="request-top">
-                      <div>
-                        <h3 className="request-title">Request #{req.request_id}</h3>
-                        <p className="muted-text">Recipient: {req.recipient_name || "-"}</p>
-                        <p className="muted-text">Donor: {req.donor_name || "Not matched yet"}</p>
-                        <p className="muted-text">Organ: {req.organ_needed}</p>
-                        <p className="muted-text">Urgency: {req.urgency_level}</p>
-                        <p className="muted-text">Notes: {req.notes || "-"}</p>
-                        <p className="muted-text">Match ID: {req.match_id || "-"}</p>
-                      </div>
-                      <span className="badge">{req.status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="card" style={{ marginTop: 20 }}>
-            <h2 className="page-title">Update Request Status</h2>
-
-            <div className="form-grid">
-              <input
-                className="input"
-                placeholder="Request ID"
-                value={requestUpdate.request_id}
-                onChange={(e) => setRequestUpdate({ ...requestUpdate, request_id: e.target.value })}
-              />
-
-              <select
-                className="select"
-                value={requestUpdate.status}
-                onChange={(e) => setRequestUpdate({ ...requestUpdate, status: e.target.value })}
-              >
-                <option value="">Select Status</option>
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
-                <option value="Rejected">Rejected</option>
-                <option value="Completed">Completed</option>
-              </select>
-
-              <textarea
-                className="input"
-                rows="4"
-                placeholder="Notes"
-                value={requestUpdate.notes}
-                onChange={(e) => setRequestUpdate({ ...requestUpdate, notes: e.target.value })}
-              />
-            </div>
-
-            <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={updateRequest}>
-              Update Request
             </button>
           </div>
 
