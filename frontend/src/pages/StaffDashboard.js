@@ -10,6 +10,7 @@ function StaffDashboard() {
   const [requests, setRequests] = useState([]);
   const [message, setMessage] = useState("");
   const [organs, setOrgans] = useState([]);
+  const [staffId, setStaffId] = useState(null);
   
 
   const [hospitalForm, setHospitalForm] = useState({
@@ -36,6 +37,15 @@ function StaffDashboard() {
     outcome: "",
     surgeon_id: ""
   });
+
+  const loadStaff = async () => {
+    try {
+      const res = await API.get(`/staff/by-user/${user.user_id}`);
+      setStaffId(res.data.staff_id);
+    } catch {
+      setStaffId(null);
+    }
+  };
 
   const loadOrgans = async () => {
     try {
@@ -67,7 +77,8 @@ function StaffDashboard() {
   useEffect(() => {
     loadHospital();
     loadRequests();
-    loadOrgans(); // 
+    loadOrgans();
+    loadStaff();   
   }, []);
 
   const createHospital = async () => {
@@ -149,25 +160,21 @@ function StaffDashboard() {
     try {
       const res = await API.post(`/match/${organId}`);
       const user = JSON.parse(localStorage.getItem("user"));
-
-      approved_by: user.user_id
   
       await API.post("/matches/approve", {
         request_id: res.data.request_id,
         organ_id: organId,
-        score: res.data.score,        
-        approved_by: 1                
+        score: res.data.score,
+        approved_by: staffId
       });
   
       alert("Match found and saved!");
   
     } catch (err) {
-      if (err.response && err.response.status === 404) {
-        alert("No match found");
-      } else {
-        console.log(err);
-        alert("Something went wrong");
-      }
+      console.log("FULL ERROR:", err);
+      console.log("RESPONSE:", err.response);
+    
+      alert(err.response?.data?.error || err.message || "Something went wrong");
     }
   };
 
